@@ -31,8 +31,13 @@
             <input type="email" name="new_email">
             <button type="submit">Change Email</button>
         </form>
+        <h4>Picture</h4>
+        <form action="/profile/picture" method="post" enctype="multipart/form-data">
+            <input type="file" name="image">
+        </form>
     {% else %}
-        <h3 style="color: red">Sorry, since this is an google account, you can't change email and password.</h3>
+        <h3 style="color: red">Sorry, since this is an google account, you can't change email, password and profile picture.</h3>
+        <p>To change profile picture, please do that in your Google Account.</p>
     {% endif %}
     <br>
     <h4>Books Published</h4>
@@ -50,13 +55,21 @@
                     <p>Published on: {{ book.timestamp }}</p>
                 </div>
             <hr>
+            </div>
         {% endfor %}
     </div>
+    <hr>
+    <h4>Draft Books</h4>
+    <ul>
+        {% for book in saved_books %}
+            <li><a href="/saved_book/edit/{{ book.title }}">{{ book.title }}</a> <a href="/saved_book/delete/{{ book.title }}">(delete)</a></li>
+        {% endfor %}
+    </ul>
     <hr>
     <h4>Following: </h4>
     <ul>
         {% for follow in following %}
-            <li><a href="/profile/{{ follow.username }}">{{ follow.username }}</a></li>
+            <li><a href="/profile/{{ follow.username }}">{{ follow.username }}</a> <a href="/unfollow/{{ follow.following_id }}">(unfollow)</a></li>
         {% endfor %}
     </ul>
 {% endblock %}

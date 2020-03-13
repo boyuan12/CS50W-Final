@@ -174,6 +174,16 @@ class Notification(db.Model):
     link = db.Column(db.Text)
     status = db.Column(db.String(100))
 
+class Saved_Book(db.Model):
+
+    __tablename__ = 'saved_book'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer)
+    title = db.Column(db.String(100))
+    description = db.Column(db.String(4096))
+    contents = db.Column(db.Text)
+
 # Create all database
 db.create_all()
 
@@ -251,8 +261,11 @@ def register():
         pwHash = generate_password_hash(password, method='pbkdf2:sha256', salt_length=8)
         verificationCode = randomString(75)
 
+        file = request.files["image"]
+        file.save(os.path.join(app.config["UPLOAD_FOLDER"], file.filename))
+
         # Add user
-        registrant = User(email=email, username=username, password=pwHash, status="user", verification=verificationCode)
+        registrant = User(email=email, username=username, password=pwHash, status="user", verification=verificationCode, picture=file.filename)
         db.session.add(registrant)
         db.session.commit()
 
@@ -645,8 +658,12 @@ def book_add():
     if request.method == 'POST':
 
         # get request info
-        if not request.form.get('title') or not request.form.get('description') or not request.form.get('embed'):
-            return render_template('alert.html', message='Make sure you filled out all required field(s)!')
+        if not request.form.get('title'):
+            return render_template('alert.html', message='You didn\'t provide title')
+        if not request.form.get('description'):
+            return render_template('alert.html', message='You didn\'t provide desc')
+        if not request.form.get('embed'):
+            return render_template('alert.html', message='You didn\'t provide embed')
 
         # Check for XSS security
         if "script" in request.form.get('embed') is not True or "onerror" in request.form.get('embed') is not True:
@@ -679,6 +696,10 @@ def book_add():
         description = request.form.get('description')
         embed = request.form.get('embed')
 
+        if "iframe" in embed is False:
+            embed = '<iframe srcdoc=' + embed + ' width="1000" height="1000" frameborder="0"></iframe>'
+
+
         # Get current time
         ts = datetime.datetime.now().timestamp()
         timestamp = datetime.datetime.fromtimestamp(ts).isoformat()
@@ -710,6 +731,7 @@ def book_add():
             db.session.commit()
 
         return render_template('success.html', message='success', link="/books/read/" + title)
+
     else:
         return render_template('admin-books-add.html')
 
@@ -851,10 +873,10 @@ def profile():
     else:
         books = Book.query.filter_by(username=session.get('username'))
 
-    # courses = Course.query.join(Course_Content, Course.id==Course_Content.course_id).add_columns(Course.id, Course.title, Course_Content.contents).filter_by(course_id=course_id)
-    following = Follower.query.join(User, Follower.following_id == User.id).add_columns(User.username).filter(Follower.owner_id == session.get('user_id'))
+    following = Follower.query.join(User, Follower.following_id == User.id).add_columns(User.username, Follower.following_id).filter(Follower.owner_id == session.get('user_id'))
+    saved_books = Saved_Book.query.filter_by(user_id=session.get('user_id'))
 
-    return render_template('profile.html', books=books, following=following)
+    return render_template('profile.html', books=books, following=following, saved_books=saved_books)
 
 
 # user can edit their username
@@ -1209,4 +1231,73 @@ def notification():
     return render_template('notifications.html', notifications=notifications)
 
 
+@app.route('/book/add-manually', methods=['GET', 'POST'])
+@login_required
+def add_book_editor():
 
+    if request.method == 'POST':
+
+        if not request.form.get('title') or not request.form.get('contents') or not request.form.get('description'):
+            return jsonify({'error': 'please fill out ALL required fields'})
+
+        title = request.form.get('title')
+        contents = request.form.get('contents')
+        description = request.form.get('description')
+
+        book_saved = Saved_Book.query.filter_by(user_id=session.get('user_id'))
+        for book in book_saved:
+            if book.title == title:
+                book.contents=contents
+                book.description=description
+                db.session.commit()
+                return jsonify({'success': 'success'})
+
+        book = Saved_Book(user_id=session.get('user_id'), title=title, contents=contents)
+
+        db.session.add(book)
+        db.session.commit()
+
+        return jsonify({'success': 'success'})
+    else:
+        return render_template('add-book-editor.html')
+
+
+@app.route('/saved_book/edit/<string:title>')
+@login_required
+def saved_book_edit(title):
+
+    book = Saved_Book.query.filter_by(title=title).first()
+
+    if book.user_id != session.get('user_id'):
+        abort(403)
+
+    return render_template('saved-book-edit.html', book=book)
+
+
+@app.route('/saved_book/delete/<string:title>')
+@login_required
+def saved_book_delete(title):
+
+    book = Saved_Book.query.filter_by(title=title).first()
+
+    if book.user_id != session.get('user_id'):
+        abort(403)
+
+    Saved_Book.query.filter(Saved_Book.title == title).delete(synchronize_session='evaluate')
+    db.session.commit()
+
+    flash('success', category='success')
+    return redirect(url_for('profile'))
+
+
+@app.route('/unfollow/<int:user_id>')
+@login_required
+def unfollow(user_id):
+
+    if user_id == session.get('user_id'):
+        return render_template('alert.html', message='You can\'t follow yourself.')
+
+    Follower.query.filter(Follower.following_id == user_id).delete(synchronize_session='evaluate')
+    db.session.commit()
+
+    return render_template('success.html', message='Unfollow Success')
